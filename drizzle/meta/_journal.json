@@ -15,6 +15,13 @@
       "when": 1788258977489,
       "tag": "0001_boring_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788982096422,
+      "tag": "0002_optimal_daredevil",
+      "breakpoints": true
     }
   ]
 }

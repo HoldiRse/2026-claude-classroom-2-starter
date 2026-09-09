@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # ai-tutor
 
-AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra agent served to a CopilotKit chat over AG-UI, behind Better Auth email/password sign-in, over a Drizzle/SQLite persistence layer, with a Vitest + Playwright test harness.
+AI tutoring web app on Next.js 16 App Router + React 19 + TypeScript 7 + Tailwind v4: a Mastra agent served to a CopilotKit chat over AG-UI, behind Better Auth email/password sign-in, over a Drizzle/SQLite persistence layer, with a Vitest + Playwright test harness.
 
 ## Commands
 
@@ -18,11 +18,11 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - `npm run lint` is `biome check` and `npm run format` is `biome format --write` — Biome only, so never add ESLint or Prettier config.
 - `npm test` (Vitest, single run), `npm run test:watch`, `npm run test:e2e` (Playwright).
 - `npm run db:generate` writes a migration from the schema and `npm run db:migrate` applies it to `DATABASE_URL`.
-- `npm run auth:generate` regenerates `lib/auth-schema.ts` from the Better Auth config; follow it with `db:generate` + `db:migrate`.
+- `npm run auth:generate` regenerates `lib/auth-schema.ts` from the Better Auth config; follow it with `db:generate` + `db:migrate`, then `npx biome check --write lib/auth-schema.ts` because the generated import order fails `organizeImports`.
 
 ## App code — `app/layout.tsx`, `app/page.tsx`, `components/`
 
-- `PageProps<'/route'>` and `LayoutProps<'/route'>` are globals generated into `.next/types`, so a typecheck on a clean checkout fails until `next dev` or `next build` has run once.
+- `PageProps<'/route'>` and `LayoutProps<'/route'>` are globals generated into `.next/types`, so a typecheck on a clean checkout fails until `next typegen` (cheapest), `next dev`, or `next build` has run once.
 - Import across the repo with the `@/*` alias (rooted at this directory), not deep relative paths.
 - `components/ui/` holds the presentational primitives (`auth-card`, `field`, `button`, `form-error`, `page-header`); extend one instead of repeating its class string.
 - `/` is the chat page: a Server Component that gates on the session, then renders `PageHeader` plus the client-only `components/chat.tsx`.
@@ -56,7 +56,6 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - The CopilotKit Inspector is on by default in development (`enableInspector` stays unset; `showDevConsole` is deprecated and controls nothing). Its `<cpk-web-inspector>` launcher would sit on the header's sign-out button, so `app/globals.css` shifts the host down with a margin.
 - `OPENROUTER_BASE_URL` (optional, see `.env.example`) routes the model traffic through a local proxy; with a custom `url` Mastra's model router no longer reads `OPENROUTER_API_KEY` itself, which is why `lib/tutor.ts` passes `apiKey` explicitly.
 - Threads only persist inside Mastra's memory — the runtime runs on the default `InMemoryAgentRunner`, so the browser's own transcript still starts empty on reload.
-- `@copilotkit/runtime` drags in a zod-3 dependency tree that conflicts with Better Auth's zod 4, hence `.npmrc`'s `legacy-peer-deps=true`; drop it and `npm install` fails.
 
 ## Tests — `tests/unit` (Vitest), `tests/e2e` (Playwright)
 
@@ -67,6 +66,7 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - `tests/unit/db.test.ts` and `tests/unit/auth.test.ts` opt out of jsdom with a `// @vitest-environment node` first line and migrate a temp file, so they never touch `data/app.db`.
 - The auth test builds its own instance from `authOptions` with the `testUtils()` plugin and an explicit `secret`/`baseURL`, because Vitest does not load `.env`.
 - `tests/e2e/auth.spec.ts` does hit `data/app.db`, so it signs up a `Date.now()`-stamped email; `playwright.config.ts` also overrides `BETTER_AUTH_URL` onto its own port.
+- A Playwright version bump needs `npx playwright install chromium`, or every test fails on a missing browser executable.
 - `tests/unit/copilotkit-route.test.ts` mocks `@/lib/auth`, `@/lib/tutor`, and both CopilotKit/AG-UI modules, so it covers the 401 gate and the `resourceId` wiring without a model call; nothing in the suite calls OpenRouter.
 
 ## Styling — `app/globals.css`, `postcss.config.mjs`
@@ -79,10 +79,13 @@ AI tutoring web app on Next.js 16 App Router + React 19 + Tailwind v4: a Mastra 
 - Holds `DATABASE_URL` (SQLite, read by both `lib/db.ts` and drizzle-kit, which loads `.env` itself), `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL` read by Better Auth itself, and `OPENROUTER_API_KEY`, which Mastra's model router reads directly.
 - `.gitignore` covers `.env*`; never commit the file or print its values.
 
-## Tooling — `biome.json`
+## Tooling — `biome.json`, `.npmrc`
 
-- Biome ignores `.claude/` because its vendored skill assets fail `biome check .`, and `drizzle/` because drizzle-kit's generated JSON does not match its formatter.
+- Biome ignores `.claude/` because its vendored skill assets fail `biome check .`, `drizzle/` because drizzle-kit's generated JSON does not match its formatter, and `public/` because the unused create-next-app SVGs trip `a11y/noSvgWithoutTitle`.
 - `npm run format` skips assist actions such as import sorting; use `npx biome check --write <path>` to fix those.
+- `next build` typechecks by shelling out to the project-local `tsc`, because TypeScript 7 ships no JavaScript compiler API before 7.1 — leave `experimental.useTypeScriptCli` unset, since `false` makes the build exit.
+- `.npmrc` sets `legacy-peer-deps=true` because Better Auth still declares `peerOptional vitest@^2 || ^3 || ^4` against this repo's Vitest 5; drop it and `npm install` fails.
+- That also stops npm installing peer dependencies, so every required peer has to be listed in `package.json` itself — currently `vite` for Vitest and `@mastra/client-js` for `@ag-ui/mastra`.
 
 ## Maintenance — for you, the agent
 
