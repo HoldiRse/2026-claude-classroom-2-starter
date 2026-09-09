@@ -23,6 +23,7 @@
     "@copilotkit/react-core": "^1.70.0",
     "@copilotkit/runtime": "^1.70.0",
     "@libsql/client": "^0.17.4",
+    "@mariozechner/pi-coding-agent": "^0.73.1",
     "@mastra/core": "^1.63.2",
     "@mastra/libsql": "^1.22.2",
     "@mastra/memory": "^1.28.1",
