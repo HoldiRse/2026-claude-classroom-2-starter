@@ -51,10 +51,11 @@ Refusals — this matters:
 // `next dev` re-evaluates modules on every hot reload; without the cache each
 // reload would leak another libSQL connection (same reason as lib/db.ts).
 const globalForTutor = globalThis as typeof globalThis & {
+  tutorStorage?: LibSQLStore;
   mastra?: Mastra<{ [TUTOR_AGENT_ID]: Agent }>;
 };
 
-function createMastra() {
+function createStorage() {
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error("DATABASE_URL is not set — see .env");
@@ -63,8 +64,12 @@ function createMastra() {
   // The same SQLite file Drizzle uses; Mastra creates and owns its own
   // `mastra_*` tables in it. Passed to both the instance and the Memory so
   // neither silently falls back to the non-durable in-memory store.
-  const storage = new LibSQLStore({ id: "tutor-memory", url });
+  return new LibSQLStore({ id: "tutor-memory", url });
+}
 
+function createMastra(
+  storage: LibSQLStore,
+): Mastra<{ [TUTOR_AGENT_ID]: Agent }> {
   return new Mastra({
     storage,
     agents: {
@@ -90,6 +95,13 @@ function createMastra() {
   });
 }
 
-globalForTutor.mastra ??= createMastra();
+globalForTutor.tutorStorage ??= createStorage();
+
+// The store holds the connection, so it is always cached. In development the
+// agent is rebuilt around it on every reload, so edits to `instructions` take
+// effect without a restart; production builds the instance once.
+if (process.env.NODE_ENV !== "production" || !globalForTutor.mastra) {
+  globalForTutor.mastra = createMastra(globalForTutor.tutorStorage);
+}
 
 export const mastra = globalForTutor.mastra;
