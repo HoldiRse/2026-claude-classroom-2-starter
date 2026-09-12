@@ -1,13 +1,19 @@
 // @vitest-environment node
+import type { RequestContext } from "@mastra/core/request-context";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-// Both are `server-only` and open a database on import, so the gate is tested
-// against stand-ins; only the branch before them is under test here.
+// All three are `server-only` and open a database on import, so the gate is
+// tested against stand-ins; only the branch before them is under test here.
 const getSession = vi.fn();
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/tutor", () => ({ TUTOR_AGENT_ID: "tutor", mastra: {} }));
+vi.mock("@/lib/todos", () => ({ USER_ID_KEY: "userId" }));
 
-const getLocalAgent = vi.fn(() => ({ agentId: "tutor" }));
+const getLocalAgent = vi.fn(
+  (_options: { resourceId: string; requestContext: RequestContext }) => ({
+    agentId: "tutor",
+  }),
+);
 vi.mock("@ag-ui/mastra", () => ({ MastraAgent: { getLocalAgent } }));
 
 const runtimeHandler = vi.fn(async () => new Response("ok"));
@@ -60,6 +66,15 @@ describe("the CopilotKit route", () => {
     expect(getLocalAgent).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: "tutor", resourceId: "user-a" }),
     );
+  });
+
+  test("hands the to-do tools the session's user id on the request context", async () => {
+    getSession.mockResolvedValue({ user: { id: "user-c" } });
+
+    await POST(runRequest());
+
+    const options = getLocalAgent.mock.calls[0][0];
+    expect(options.requestContext.get("userId")).toBe("user-c");
   });
 
   test("takes the user id from the session, not from the request", async () => {
