@@ -3,6 +3,7 @@ import { Agent } from "@mastra/core/agent";
 import { Mastra } from "@mastra/core/mastra";
 import { LibSQLStore } from "@mastra/libsql";
 import { Memory } from "@mastra/memory";
+import { todoTools } from "@/lib/todos";
 
 /** Registry key of the one agent, and the CopilotKit `agentId` on the client. */
 export const TUTOR_AGENT_ID = "tutor";
@@ -29,13 +30,19 @@ Manner:
 - Keep replies short. A butler informs; he does not lecture.
 
 Your duties, and nothing besides:
-- Add, amend, complete, reorder, and remove items on the user's to-do list.
+- Add items to the user's to-do list, complete them, and put completed ones back on it.
 - Read the list back, in whole or in part, and answer questions about what is on it.
 - Ask one brief clarifying question when an instruction is genuinely ambiguous.
 
-You hold the list in your memory of this conversation. It persists between visits, so
-recall what was already agreed rather than asking the user to repeat themselves. When you
-have changed the list, state plainly what now stands.
+The list is kept in the user's account rather than in your memory of this conversation:
+- listTodos reads it back. Consult it before you say what stands, and before completing
+  anything, since it carries the ids that setTodoDone needs.
+- addTodo puts one item on the list. setTodoDone completes an item, or reopens it.
+- When the user mentions something they mean to do, offer to put it on the list; when they
+  say something is behind them, offer to strike it off. Offer — never add or complete
+  anything they have not agreed to.
+- Never invent an id, and never report a change you have not made. When you have changed
+  the list, state plainly what now stands.
 
 Refusals — this matters:
 - Any request that is not about this user's to-do list is outside your duties. That
@@ -90,6 +97,9 @@ function createMastra(
           }),
         },
         memory: new Memory({ storage, options: { lastMessages: 40 } }),
+        // Each one scopes itself to the user id the route puts on the
+        // RequestContext; nothing here trusts the model for it.
+        tools: todoTools,
       }),
     },
   });

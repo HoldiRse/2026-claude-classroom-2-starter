@@ -18,6 +18,7 @@ AI tutoring web app on Next.js 16 App Router + React 19 + TypeScript 7 + Tailwin
 - `npm run lint` is `biome check` and `npm run format` is `biome format --write` — Biome only, so never add ESLint or Prettier config.
 - `npm test` (Vitest, single run), `npm run test:watch`, `npm run test:e2e` (Playwright).
 - `npm run db:generate` writes a migration from the schema and `npm run db:migrate` applies it to `DATABASE_URL`.
+- `npm run db:seed` runs `scripts/seed.ts` under `tsx` (a direct devDependency for this) to create or refresh the demo student `demo@example.com` / `demo-password-123` with twelve to-dos; it refuses `NODE_ENV=production` and exports `seedDemoStudent` for `tests/unit/seed.test.ts`.
 - `npm run auth:generate` regenerates `lib/auth-schema.ts` from the Better Auth config; follow it with `db:generate` + `db:migrate`, then `npx biome check --write lib/auth-schema.ts` because the generated import order fails `organizeImports`.
 
 ## App code — `app/layout.tsx`, `app/page.tsx`, `components/`
@@ -25,7 +26,7 @@ AI tutoring web app on Next.js 16 App Router + React 19 + TypeScript 7 + Tailwin
 - `PageProps<'/route'>` and `LayoutProps<'/route'>` are globals generated into `.next/types`, so a typecheck on a clean checkout fails until `next typegen` (cheapest), `next dev`, or `next build` has run once.
 - Import across the repo with the `@/*` alias (rooted at this directory), not deep relative paths.
 - `components/ui/` holds the presentational primitives (`auth-card`, `field`, `button`, `form-error`, `page-header`); extend one instead of repeating its class string.
-- `/` is the chat page: a Server Component that gates on the session, then renders `PageHeader` plus the client-only `components/chat.tsx`.
+- `/` is the chat page: a Server Component that gates on the session, then renders `PageHeader` plus the client-only `components/chat.tsx`, handing it the server-rendered `components/todos-sidebar.tsx` as a node.
 
 ## Persistence — `lib/db.ts`, `lib/schema.ts`, `lib/auth-schema.ts`, `drizzle.config.ts`, `drizzle/`
 
@@ -45,6 +46,8 @@ AI tutoring web app on Next.js 16 App Router + React 19 + TypeScript 7 + Tailwin
 ## Agent — `lib/tutor.ts`, `components/chat.tsx`, `app/api/copilotkit/[...all]/`
 
 - `lib/tutor.ts` is the whole agent: one `Agent` (`TUTOR_AGENT_ID`, a butler who only keeps the user's to-do list) on `openrouter/z-ai/glm-5.3-flash`, held on a `Mastra` instance.
+- `lib/todos.ts` is the agent's `listTodos`/`addTodo`/`setTodoDone` tools over the `todos` table, each scoped to the user id it reads from the `RequestContext` under `USER_ID_KEY` — it throws rather than run unscoped, and `setTodoDone` matches on owner as well as row id.
+- The route sets that key from the verified session, and `MastraAgent` files client-supplied context under its own `ag-ui` key, so neither the browser nor the model can forge the id.
 - Its `LibSQLStore` is cached on `globalThis` the way `lib/db.ts` caches its connection, but the `Mastra` instance only in production, so `next dev` rebuilds the agent on hot reload and instruction edits apply without a restart.
 - Mastra's model router reads `OPENROUTER_API_KEY` itself, so no AI SDK provider package is installed and the model string keeps its `provider/vendor/model` shape.
 - Memory is `@mastra/memory` over a `LibSQLStore` on `DATABASE_URL`; the same store is passed to the `Mastra` instance too, or it warns and silently falls back to a non-durable in-memory one.
@@ -57,6 +60,8 @@ AI tutoring web app on Next.js 16 App Router + React 19 + TypeScript 7 + Tailwin
 - The CopilotKit Inspector is on by default in development (`enableInspector` stays unset; `showDevConsole` is deprecated and controls nothing). Its `<cpk-web-inspector>` launcher would sit on the header's sign-out button, so `app/globals.css` shifts the host down with a margin.
 - `OPENROUTER_BASE_URL` (optional, see `.env.example`) routes the model traffic through a local proxy; with a custom `url` Mastra's model router no longer reads `OPENROUTER_API_KEY` itself, which is why `lib/tutor.ts` passes `apiKey` explicitly.
 - Threads only persist inside Mastra's memory — the runtime runs on the default `InMemoryAgentRunner`, so the browser's own transcript still starts empty on reload.
+- `components/chat.tsx` passes one wildcard `renderToolCalls` entry that draws every tool call as `components/tool-call-card.tsx`, since without a renderer CopilotChat shows tool calls as blank space; a call with no result once the run ends reads as failed, because Mastra emits no result event for a tool that throws.
+- The sidebar is read-only because the tools are the only write path; `components/todos-refresh.tsx` subscribes to the agent and calls `router.refresh()` when a write tool's result lands or a run that changed something ends.
 
 ## Tests — `tests/unit` (Vitest), `tests/e2e` (Playwright)
 
@@ -68,7 +73,9 @@ AI tutoring web app on Next.js 16 App Router + React 19 + TypeScript 7 + Tailwin
 - The auth test builds its own instance from `authOptions` with the `testUtils()` plugin and an explicit `secret`/`baseURL`, because Vitest does not load `.env`.
 - `tests/e2e/auth.spec.ts` does hit `data/app.db`, so it signs up a `Date.now()`-stamped email; `playwright.config.ts` also overrides `BETTER_AUTH_URL` onto its own port.
 - A Playwright version bump needs `npx playwright install chromium`, or every test fails on a missing browser executable.
-- `tests/unit/copilotkit-route.test.ts` mocks `@/lib/auth`, `@/lib/tutor`, and both CopilotKit/AG-UI modules, so it covers the 401 gate and the `resourceId` wiring without a model call; nothing in the suite calls OpenRouter.
+- `tests/unit/copilotkit-route.test.ts` mocks `@/lib/auth`, `@/lib/tutor`, `@/lib/todos`, and both CopilotKit/AG-UI modules, so it covers the 401 gate plus the `resourceId` and request-context wiring without a model call.
+- `tests/unit/todos.test.ts` migrates a temp file and drives the tools through a real `RequestContext`, covering per-user isolation on the read and the write side.
+- `npm run test:e2e:llm` (`playwright.llm.config.ts` over `tests/e2e-llm/`) is the only thing here that calls OpenRouter, which is why it is deliberately outside `npm run test:e2e`.
 
 ## Styling — `app/globals.css`, `postcss.config.mjs`
 
@@ -86,7 +93,7 @@ AI tutoring web app on Next.js 16 App Router + React 19 + TypeScript 7 + Tailwin
 - `npm run format` skips assist actions such as import sorting; use `npx biome check --write <path>` to fix those.
 - `next build` typechecks by shelling out to the project-local `tsc`, because TypeScript 7 ships no JavaScript compiler API before 7.1 — leave `experimental.useTypeScriptCli` unset, since `false` makes the build exit.
 - `.npmrc` sets `legacy-peer-deps=true` because Better Auth still declares `peerOptional vitest@^2 || ^3 || ^4` against this repo's Vitest 5; drop it and `npm install` fails.
-- That also stops npm installing peer dependencies, so every required peer has to be listed in `package.json` itself — currently `vite` for Vitest and `@mastra/client-js` for `@ag-ui/mastra`.
+- That also stops npm installing peer dependencies, so every required peer has to be listed in `package.json` itself — currently `vite` for Vitest, `@mastra/client-js` for `@ag-ui/mastra`, and `zod` for the tool schemas in `lib/todos.ts`.
 
 ## Maintenance — for you, the agent
 
